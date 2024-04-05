@@ -1,7 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/apiError.js";
 import {User} from "../models/user.model.js"
-import {uploadOnCloudinary} from "../utils/cloudinary.js"
+import {uploadOnCloudinary,deleteFromCloudinary} from "../utils/cloudinary.js"
 import {ApiResponse} from "../utils/apiResponse.js";
 import jwt from "jsonwebtoken"
 
@@ -261,26 +261,39 @@ return res
 
 })
 
-const changeCurrentPassword = asyncHandler(async(req,res)=>{
-  const {oldPassword,newPassword} = req.body;
-  // if I am able to change this password than it is sure that we are logged In and at that moment we also add req.user in verifyJWT
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword, confPassword } = req.body
+  
+  if (newPassword !== confPassword) {
+    throw new ApiError(400, 'Passwords do not match')
+  }
 
-  const user  = await User.findById(req.user?._id)
-  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
+  if (!currentPassword || !newPassword) {
+    throw new ApiError(400, 'Please fill all the required fields')
+  }
 
-  if(!isPasswordCorrect){
-    throw new ApiError(400,"Invalid old password")
+
+
+  const user = await User.findById(req.user?._id)
+  const isPasswordValid = await user.isPasswordCorrect(currentPassword)
+  if (!isPasswordValid) {
+    throw new ApiError(400, 'Invalid password')
   }
   user.password = newPassword
-  await user.save({validateBeforeSave:false})
 
-  return res.status(200).json(new ApiResponse(200,{},"Password Changed Successfully"))
+  await user.save({validateBeforeSave : false})
+
+  return res
+  .status(200)
+  .json(new ApiResponse(200, {}, 'Password changed successfully'))
+
+
 })
 
 // if user is logged in than we get current user because in verifyJWT we already make req.user = user and thats the below controller want
 
 const getCurrentuser = asyncHandler(async(req,res)=>{
-  return res.status(200).json(200,req.user,"current user fetched Succefully")
+  return res.status(200).json(new ApiResponse(200,req.user,"current user fetched Succefully"))
 })
 
 const updateAccountDetails = asyncHandler(async(req,res)=>{
@@ -318,6 +331,17 @@ const updateUserAvatar = asyncHandler(async(req,res)=>{
       if(!avatar){
         throw new ApiError(400,"Error while uploading the avatar on avatar")
       }
+   
+      // for to delete old avatar from cloudinary we have requirement of publicId which is present in avatar.url itself
+      // http://res.cloudinary.com/dd2yvnrvy/image/upload/v1712321493/k2yfftrp6dldmurk16za.pn
+      // in this cloudinary image link this is public id  = k2yfftrp6dldmurk16za  we can find it by split into array
+  
+      const publicId = req.user?.avatar?.split('/').pop()?.split('.')[0];
+        const oldAvatarDeleted  =   await deleteFromCloudinary(publicId)
+      if(!oldAvatarDeleted) {
+          throw new ApiError(404, "Old avatar not deleted");
+      }
+  
 
       const user =  await User.findByIdAndUpdate(
         req.user?._id,
@@ -363,4 +387,4 @@ const updateUserCoverImage = asyncHandler(async(req,res)=>{
 
 })
 
-export {registerUser,loginUser,logoutUser,refreshAccessToken,getCurrentuser,changeCurrentPassword,updateUserAvatar,updateUserCoverImage}
+export {registerUser,loginUser,logoutUser,refreshAccessToken,getCurrentuser,changeCurrentPassword,updateUserAvatar,updateUserCoverImage,updateAccountDetails}
